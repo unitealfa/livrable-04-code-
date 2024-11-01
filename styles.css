@@ -1,0 +1,123 @@
+body {
+    font-family: 'Courier New', Courier, monospace;
+    background-color: #1e1e1e;
+    color: #ffffff;
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+
+.editor {
+    background-color: #252526;
+    border: 1px solid #444444;
+    border-radius: 5px;
+    padding: 20px;
+    width: 600px;
+    position: relative;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.editor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #444444;
+}
+
+.editor-title {
+    font-weight: bold;
+    color: #ffffff;
+}
+
+.editor-controls {
+    display: flex;
+}
+
+.control-btn {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-left: 5px;
+}
+
+.control-btn:nth-child(1) {
+    background-color: #ff5c5c; /* Red */
+}
+
+.control-btn:nth-child(2) {
+    background-color: #ffbd44; /* Yellow */
+}
+
+.control-btn:nth-child(3) {
+    background-color: #5caf85; /* Green */
+}
+
+.code-block {
+    white-space: pre;
+    overflow: auto;
+    padding: 10px;
+    border: 1px solid #444444;
+    border-radius: 5px;
+    background-color: #1e1e1e;
+    color: #dcdcdc; /* Light gray for code */
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+button {
+    background-color: #007acc;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 10px;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #005a99;
+}
+
+
+
+/* Ajout des styles pour le conteneur de l'éditeur */
+.editor {
+    background-color: #252526;
+    border: 1px solid #444444;
+    border-radius: 5px;
+    padding: 20px;
+    width: 100%;
+    max-width: 600px; /* Fixe une largeur maximale */
+    position: relative;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    overflow: hidden; /* Empêche le redimensionnement */
+}
+
+/* Ajout des scrollbars pour le bloc de code */
+.code-block {
+    white-space: pre;
+    overflow-x: auto; /* Scroll horizontal */
+    overflow-y: auto; /* Scroll vertical */
+    max-height: 400px; /* Hauteur maximale pour l'affichage du code */
+    padding: 10px;
+    border: 1px solid #444444;
+    border-radius: 5px;
+    background-color: #1e1e1e;
+    color: #dcdcdc;
+    font-size: 16px;
+    line-height: 1.5;
+}
+.code-block {
+    white-space: pre;
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 400px;
+}

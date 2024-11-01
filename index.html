@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Livrable 03 G4</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="editor">
+            <div class="editor-header">
+                <span class="editor-title">livrable4.C</span>
+                <div class="editor-controls">
+                    <span class="control-btn"></span>
+                    <span class="control-btn"></span>
+                    <span class="control-btn"></span>
+                </div>
+            </div>
+            <!-- Ajustement du code pour éviter l'indentation excessive -->
+            <pre id="code" class="code-block"><code>
+              #include &lt;Wire.h&gt;
+              #include &lt;RTClib.h&gt;
+              #include &lt;DHT.h&gt;
+              #include &lt;SD.h&gt;
+              
+              #define LED_RED 3        // Pin rouge de la LED RGB
+              #define LED_GREEN 9      // Pin verte de la LED RGB
+              #define LED_BLUE 10      // Pin bleue de la LED RGB
+              #define BUTTON_MODE 2    // Bouton pour changer de mode
+              #define BUTTON_MAINT 7   // Bouton pour le mode maintenance
+              #define DHTPIN 8
+              #define DHTTYPE DHT11
+              #define CS_PIN 4
+              #define GY302_ADDRESS 0x23
+              
+              RTC_DS1307 rtc;
+              DHT dht(DHTPIN, DHTTYPE);
+              
+              const unsigned long debounceDelay = 50;
+              const unsigned long longPressDuration = 5000;
+              const unsigned long configTimeout = 1800000;
+              const unsigned long LOG_INTERVAL = 5000;
+              const unsigned int TIMEOUT = 30000;
+              const unsigned int FILE_MAX_SIZE = 2048;
+              
+              // Pointeurs vers les constantes
+              const unsigned long* pDebounceDelay = &debounceDelay;
+              const unsigned long* pLongPressDuration = &longPressDuration;
+              const unsigned long* pConfigTimeout = &configTimeout;
+              const unsigned long* pLogInterval = &LOG_INTERVAL;
+              const unsigned int* pTimeout = &TIMEOUT;
+              const unsigned int* pFileMaxSize = &FILE_MAX_SIZE;
+              
+              int fileRevision = 0;
+              int le_miaw = 1; // Variable de contrôle de fonctionnement
+              
+              // États des boutons et chronométrages
+              bool buttonModeState, buttonMaintState;
+              bool lastButtonModeState = HIGH;
+              bool lastButtonMaintState = HIGH;
+              unsigned long lastDebounceTimeMode = 0, lastDebounceTimeMaint = 0;
+              unsigned long pressStartTimeMode = 0, pressStartTimeMaint = 0;
+              unsigned long configStartTime = 0;
+              unsigned long previousMillis = 0;
+              
+              const unsigned long blinkInterval = 500;
+              unsigned long previousBlinkMillis = 0;
+              bool ledState = false;
+              
+              // Modes
+              enum Mode { STANDARD, CONFIGURATION, MAINTENANCE, ECONOMIQUE };
+              Mode mode = STANDARD;
+              Mode previousMode = STANDARD;
+              
+              // Variable pour stocker la commande reçue
+              String command = "";
+              
+              // Déclarations de fonctions
+              void logData(DateTime now);
+              void displaySensorData();
+              uint16_t getLuminosite();
+              float readTemperature();
+              float readHumidity();
+              void afficherMode();
+              void allumerLED(int red, int green, int blue);
+              void clignoterLED(int red1, int green1, int blue1, int red2, int green2, int blue2, unsigned long interval);
+              void interruptHandlerMode();
+              void interruptHandlerMaint();
+              
+              void setup() {
+                  Serial.begin(9600);
+                  dht.begin();
+                  Wire.begin();
+                  pinMode(LED_RED, OUTPUT);
+                  pinMode(LED_GREEN, OUTPUT);
+                  pinMode(LED_BLUE, OUTPUT);
+                  pinMode(BUTTON_MODE, INPUT_PULLUP);
+                  pinMode(BUTTON_MAINT, INPUT_PULLUP);
+              
+                  if (!rtc.begin()) {
+                      Serial.println(F("Err: RTC non détecté."));
+                      while (1) {
+                          clignoterLED(255, 255, 0, 0, 255, 0, blinkInterval);
+                      }
+                  }
+                  if (!rtc.isrunning()) {
+                      rtc.adjust(DateTime(__DATE__, __TIME__));
+                  }
+                  if (!SD.begin(CS_PIN)) {
+                      Serial.println(F("Err: SD non détectée."));
+                      while (1) {
+                          clignoterLED(125, 0, 0, 0, 255, 0, blinkInterval);
+                      }
+                  }
+                  Serial.println(F("Démarrage réussi"));
+              
+                  attachInterrupt(digitalPinToInterrupt(BUTTON_MODE), interruptHandlerMode, CHANGE);
+                  attachInterrupt(digitalPinToInterrupt(BUTTON_MAINT), interruptHandlerMaint, CHANGE);
+              
+                  afficherMode();
+              }
+              
+              void loop() {
+                  unsigned long currentMillis = millis();
+                  int buttonModeReading = digitalRead(BUTTON_MODE);
+                  int buttonMaintReading = digitalRead(BUTTON_MAINT);
+              
+                  // Gestion du bouton de changement de mode
+                  if (buttonModeReading != lastButtonModeState) {
+                      lastDebounceTimeMode = millis();
+                  }
+                  if ((millis() - lastDebounceTimeMode) > *pDebounceDelay) {
+                      if (buttonModeReading != buttonModeState) {
+                          buttonModeState = buttonModeReading;
+                          if (buttonModeState == LOW) {
+                              pressStartTimeMode = millis();
+                          } else if (buttonModeState == HIGH) {
+                              if ((millis() - pressStartTimeMode) >= *pLongPressDuration) {
+                                  if (mode == STANDARD) {
+                                      mode = CONFIGURATION;
+                                      configStartTime = millis();
+                                  } else if (mode == CONFIGURATION) {
+                                      mode = ECONOMIQUE;
+                                  } else if (mode == ECONOMIQUE) {
+                                      mode = STANDARD;
+                                  }
+                                  afficherMode();
+                              }
+                          }
+                      }
+                  }
+              
+                  // Gestion du bouton de maintenance
+                  if (buttonMaintReading != lastButtonMaintState) {
+                      lastDebounceTimeMaint = millis();
+                  }
+                  if ((millis() - lastDebounceTimeMaint) > *pDebounceDelay) {
+                      if (buttonMaintReading != buttonMaintState) {
+                          buttonMaintState = buttonMaintReading;
+                          if (buttonMaintState == LOW) {
+                              pressStartTimeMaint = millis();
+                          } else if (buttonMaintState == HIGH) {
+                              if ((millis() - pressStartTimeMaint) >= *pLongPressDuration) {
+                                  if (mode == STANDARD || mode == ECONOMIQUE) {
+                                      previousMode = mode;
+                                      mode = MAINTENANCE;
+                                  } else if (mode == MAINTENANCE) {
+                                      mode = previousMode;
+                                  }
+                                  afficherMode();
+                              }
+                          }
+                      }
+                  }
+              
+                  // Retour automatique au mode standard
+                  if (mode == CONFIGURATION && (millis() - configStartTime) >= *pConfigTimeout) {
+                      mode = STANDARD;
+                      afficherMode();
+                  }
+              
+                  lastButtonModeState = buttonModeReading;
+                  lastButtonMaintState = buttonMaintReading;
+              
+                  // Gérer l'enregistrement ou l'affichage en fonction du mode, sauf en mode CONFIGURATION
+                  if (mode != CONFIGURATION) {
+                      if (le_miaw == 1 && currentMillis - previousMillis >= *pLogInterval) {
+                          previousMillis = currentMillis;
+                          logData(rtc.now());
+                      } else if (le_miaw == 2 && currentMillis - previousMillis >= (*pLogInterval * 2)) {
+                          previousMillis = currentMillis;
+                          logData(rtc.now());
+                      } else if (le_miaw == 3 && currentMillis - previousMillis >= *pLogInterval) {
+                          previousMillis = currentMillis;
+                          displaySensorData();
+                      }
+                  }
+              
+                  // Lire les commandes en mode CONFIGURATION
+                  if (mode == CONFIGURATION && Serial.available() > 0) {
+                      char receivedChar = Serial.read();
+                      
+                      // Si on reçoit un retour à la ligne, on exécute la commande
+                      if (receivedChar == '\n') {
+                          if (command.equals("VERSION")) {
+                              Serial.println("latest version installed (8.0.0.85)");
+                          }
+                          // Réinitialise la commande après l'exécution
+                          command = "";
+                      } else {
+                          command += receivedChar; // Concaténer les caractères reçus pour former la commande
+                      }
+                  }
+              }
+              
+              void afficherMode() {
+                  allumerLED(255, 255, 255);
+              
+                  switch (mode) {
+                      case STANDARD:
+                          le_miaw = 1;
+                          allumerLED(255, 0, 255); // LED pour standard
+                          Serial.println(F("Mode standard activé"));
+                          break;
+                      case CONFIGURATION:
+                          Serial.println(F("Mode Configuration activé taper votre commande"));
+                          le_miaw = 0; // Désactiver les enregistrements pour ce mode
+                          allumerLED(130, 0, 130); // LED pour configuration
+                          break;
+                      case ECONOMIQUE:
+                          le_miaw = 2;
+                          allumerLED(255, 255, 0); // LED pour économique
+                          Serial.println(F("Mode economique activé"));
+                          break;
+                      case MAINTENANCE:
+                          le_miaw = 3;
+                          allumerLED(0, 0, 255); // LED pour maintenance
+                          Serial.println(F("Mode maintenance activé"));
+                          break;
+                  }
+              }
+              
+              void allumerLED(int red, int green, int blue) {
+                  analogWrite(LED_RED, red);
+                  analogWrite(LED_GREEN, green);
+                  analogWrite(LED_BLUE, blue);
+              }
+              
+              void clignoterLED(int red1, int green1, int blue1, int red2, int green2, int blue2, unsigned long interval) {
+                  if (millis() - previousBlinkMillis >= interval) {
+                      previousBlinkMillis = millis();
+                      ledState = !ledState;
+              
+                      if (ledState) {
+                          allumerLED(red1, green1, blue1);
+                      } else {
+                          allumerLED(red2, green2, blue2);
+                      }
+                  }
+              }
+              
+              void interruptHandlerMode() {
+                  buttonModeState = (digitalRead(BUTTON_MODE) == LOW);
+                  if (buttonModeState) pressStartTimeMode = millis();
+                  lastDebounceTimeMode = millis();
+              }
+              
+              void interruptHandlerMaint() {
+                  buttonMaintState = (digitalRead(BUTTON_MAINT) == LOW);
+                  if (buttonMaintState) pressStartTimeMaint = millis();
+                  lastDebounceTimeMaint = millis();
+              }
+              
+              void logData(DateTime now) {
+                  char filename[20];
+                  snprintf(filename, sizeof(filename), "%02d%02d%02d_%d.LOG",
+                           now.year() % 100, now.month(), now.day(), fileRevision);
+              
+                  if (SD.exists(filename)) {
+                      File checkFile = SD.open(filename, FILE_READ);
+                      if (checkFile.size() >= *pFileMaxSize) { 
+                          fileRevision++;
+                          snprintf(filename, sizeof(filename), "%02d%02d%02d_%d.LOG",
+                                   now.year() % 100, now.month(), now.day(), fileRevision);
+                      }
+                      checkFile.close();
+                  }
+              
+                  File dataFile = SD.open(filename, FILE_WRITE);
+                  if (!dataFile) {
+                      Serial.println("Err: Impossible d'ouvrir le fichier pour l'écriture.");
+                      while (1) {
+                          clignoterLED(125, 0, 0, 0, 255, 0, blinkInterval);  // Rouge et vert en cas d'erreur d'écriture
+                      }
+                  }
+              
+                  dataFile.print("Date: ");
+                  dataFile.print(now.year(), DEC);
+                  dataFile.print('/');
+                  dataFile.print(now.month(), DEC);
+                  dataFile.print('/');
+                  dataFile.print(now.day(), DEC);
+                  dataFile.print(" Heure: ");
+                  dataFile.print(now.hour(), DEC);
+                  dataFile.print(':');
+                  dataFile.print(now.minute(), DEC);
+                  dataFile.print(':');
+                  dataFile.print(now.second(), DEC);
+              
+                  dataFile.print(" | Luminosité: ");
+                  uint16_t luminosite = getLuminosite();
+                  dataFile.print((luminosite != 0) ? String(luminosite) : "NA");
+              
+                  dataFile.print(" | Température: ");
+                  float temperature = readTemperature();
+                  dataFile.print(!isnan(temperature) ? String(temperature) : "NA");
+              
+                  dataFile.print("C | Humidité: ");
+                  float humidite = readHumidity();
+                  dataFile.print(!isnan(humidite) ? String(humidite) : "NA");
+                  dataFile.print("%");
+              
+                  dataFile.print(" | Coordonnées: x:alger, y:tixrain, z:kadous");
+                  dataFile.println();
+              
+                  dataFile.close();
+                  Serial.println("Enregistrement réussi");
+              }
+              
+              void displaySensorData() {
+                  DateTime now = rtc.now();
+                  Serial.print("Date: ");
+                  Serial.print(now.year(), DEC);
+                  Serial.print('/');
+                  Serial.print(now.month(), DEC);
+                  Serial.print('/');
+                  Serial.print(now.day(), DEC);
+                  Serial.print(" Heure: ");
+                  Serial.print(now.hour(), DEC);
+                  Serial.print(':');
+                  Serial.print(now.minute(), DEC);
+                  Serial.print(':');
+                  Serial.print(now.second(), DEC);
+              
+                  uint16_t luminosite = getLuminosite();
+                  Serial.print(" | Luminosité: ");
+                  Serial.print((luminosite != 0) ? String(luminosite) : "NA");
+              
+                  float temperature = readTemperature();
+                  Serial.print(" | Température: ");
+                  Serial.print(!isnan(temperature) ? String(temperature) : "NA");
+                  Serial.print("C | Humidité: ");
+                  float humidite = readHumidity();
+                  Serial.print(!isnan(humidite) ? String(humidite) : "NA");
+                  Serial.print("%");
+              
+                  Serial.print(" | Coordonnées: x:alger, y:tixrain, z:kadous");
+                  Serial.println();
+              }
+              
+              uint16_t getLuminosite() {
+                  Wire.beginTransmission(GY302_ADDRESS);
+                  Wire.write(0x10);
+                  Wire.endTransmission();
+                  unsigned long startTime = millis();
+              
+                  while (millis() - startTime < *pTimeout) { 
+                      if (Wire.requestFrom(GY302_ADDRESS, 2) == 2) {
+                          uint16_t level = Wire.read();
+                          level = (level << 8) | Wire.read();
+                          return level / 1.2;
+                      }
+                  }
+                  return 0;
+              }
+              
+              float readTemperature() {
+                  unsigned long startTime = millis();
+                  while (millis() - startTime < *pTimeout) { 
+                      float temp = dht.readTemperature();
+                      if (!isnan(temp)) return temp;
+                  }
+                  return NAN;
+              }
+              
+              float readHumidity() {
+                  unsigned long startTime = millis();
+                  while (millis() - startTime < *pTimeout) { 
+                      float hum = dht.readHumidity();
+                      if (!isnan(hum)) return hum;
+                  }
+                  return NAN;
+              }                                               
+              
+                
+                
+                    </code></pre>
+            <button id="copy-button">Copy Code</button>
+        </div>
+    </div>
+
+    <script>
+        const copyButton = document.getElementById('copy-button');
+        const codeBlock = document.getElementById('code').innerText;
+
+        copyButton.addEventListener('click', () => {
+            navigator.clipboard.writeText(codeBlock).then(() => {
+                alert('Code copied to clipboard!');
+            }).catch(err => {
+                console.error('Could not copy text: ', err);
+            });
+        });
+    </script>
+</body>
+</html>
